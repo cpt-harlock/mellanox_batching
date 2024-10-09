@@ -1741,6 +1741,7 @@ mlx5e_skb_from_cqe_linear_batched(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_inf
 	dma_addr_t addr;
 	u32 frag_size;
 	u16* metadata;
+	struct sk_buff *skb;
 
 	va             = page_address(frag_page->page) + wi->offset;
 	data           = va + rx_headroom + MLX5E_BATCHED_METADATA_LENGTH;
@@ -1777,26 +1778,15 @@ mlx5e_skb_from_cqe_linear_batched(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_inf
 	//skb = mlx5e_build_linear_skb(rq, va, frag_size, rx_headroom, cqe_bcnt, metasize);
 	//if (unlikely(!skb))
 	//	return NULL;
+	
 	//TODO: allocate two sk_buffs for batched XDP
-	// Placeholder code, wanted to use a struct with two pointer but entails a lot of changes
-	//skb_array.first_skb = alloc_skb(*metadata, 0);
-	//skb_array.second_skb = alloc_skb(cqe_bcnt-*metadata, 0);
-	//if (skb_array.first_skb) {
-	//	skb_put_data(skb_array.first_skb, data, *metadata);
-	//	skb_mark_for_recycle(skb_array.first_skb);
-	//}
-	//if (skb_array.second_skb) {
-	//	skb_put_data(skb_array.second_skb, data+*metadata, cqe_bcnt-*metadata);
-	//	skb_mark_for_recycle(skb_array.second_skb);
-	//}
-
-
+	skb = napi_build_skb(data, *metadata);
+	skb->next = napi_build_skb(data + *metadata, frag_size - *metadata);
 	/* queue up for recycling/reuse */
 	frag_page->frags++;
 
 	
-	struct sk_buff skb_array;
-	return (struct sk_buff*)(&skb_array);
+	return skb;
 }
 
 
