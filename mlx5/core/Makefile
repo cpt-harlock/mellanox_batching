@@ -167,8 +167,10 @@ mlx5_core-$(CONFIG_MLX5_SF_MANAGER) += sf/cmd.o sf/hw_table.o sf/devlink.o
 obj-$(CONFIG_MLX5_DPLL) += mlx5_dpll.o
 mlx5_dpll-y :=	dpll.o
 
+COMPILEDB = $(which compiledb)
+
 all:
-	compiledb $(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) modules
+	$(COMPILEDB) $(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) modules
 
 clean:
 	$(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) clean
