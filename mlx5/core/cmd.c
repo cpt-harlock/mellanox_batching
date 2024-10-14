@@ -1303,8 +1303,12 @@ static long metadata_ioctl(struct file* file,  unsigned int cmd, unsigned long a
 	switch(cmd) {
 		case SET_METADATA:
 			metadata_enabled = 1;
+			printk("Set metadata: %u\n", metadata_enabled);
+			break;	
 		case RESET_METADATA:
 			metadata_enabled = 0;
+			printk("Reset metadata: %u\n", metadata_enabled);
+			break;	
 	}
 	return 0;
 }
