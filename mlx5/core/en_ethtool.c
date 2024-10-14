@@ -39,6 +39,8 @@
 #include "lib/clock.h"
 #include "en/fs_ethtool.h"
 
+
+extern u8 metadata_enable;
 void mlx5e_ethtool_get_drvinfo(struct mlx5e_priv *priv,
 			       struct ethtool_drvinfo *drvinfo)
 {

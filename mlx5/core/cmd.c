@@ -46,6 +46,9 @@
 #include "lib/tout.h"
 #define CREATE_TRACE_POINTS
 #include "diag/cmd_tracepoint.h"
+#include "en_ioctl.h"
+
+extern u8 metadata_enabled;
 
 struct mlx5_ifc_mbox_out_bits {
 	u8         status[0x8];
@@ -1296,10 +1299,21 @@ static ssize_t dbg_write(struct file *filp, const char __user *buf,
 	return err ? err : count;
 }
 
+static long metadata_ioctl(struct file* file,  unsigned int cmd, unsigned long arg) {
+	switch(cmd) {
+		case SET_METADATA:
+			metadata_enabled = 1;
+		case RESET_METADATA:
+			metadata_enabled = 0;
+	}
+	return 0;
+}
+
 static const struct file_operations fops = {
 	.owner	= THIS_MODULE,
 	.open	= simple_open,
 	.write	= dbg_write,
+	.unlocked_ioctl = metadata_ioctl,
 };
 
 static int mlx5_copy_to_msg(struct mlx5_cmd_msg *to, void *from, int size,
