@@ -1669,14 +1669,16 @@ static void mlx5e_fill_mxbuf(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 	mxbuf->rq = rq;
 }
 
-//TODO: implement this function for batched XDP
 static void mlx5e_fill_mxbuf_metadata(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 			     void *va, u16 headroom, u32 frame_sz, u32 len,
 			     struct mlx5e_xdp_buff *mxbuf)
 {
 	xdp_init_buff(&mxbuf->xdp, frame_sz, &rq->xdp_rxq);
-	//xdp_prepare_buff_metadata(&mxbuf->xdp, va, headroom, len, true, METADATA_LENGTH);
-	xdp_prepare_buff(&mxbuf->xdp, va, headroom, len, true);
+	char *data = va + headroom + MLX5E_BATCHED_METADATA_LENGTH;
+	mxbuf->xdp.data_hard_start = va;
+	mxbuf->xdp.data = data;
+	mxbuf->xdp.data_end = va + headroom + len;
+	mxbuf->xdp.data_meta = va + headroom;
 	mxbuf->cqe = cqe;
 	mxbuf->rq = rq;
 }
@@ -1933,19 +1935,127 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
-		//TODO: implement new function that perform same skb-from-cqe transformation
-		//but considering batched packets  
-		struct sk_buff* skb_array;
-		skb_array = INDIRECT_CALL_3(rq->wqe.skb_from_cqe_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				//mlx5e_skb_from_cqe_nonlinear_batched,
-				//mlx5e_xsk_skb_from_cqe_linear_batched,
-				rq, wi, cqe, cqe_bcnt);
-		//TODO:  
-	}
+		//TODO: inline processing of packets directly here
+		struct mlx5e_frag_page *frag_page = wi->frag_page;
+		u16 rx_headroom = rq->buff.headroom;
+		struct bpf_prog *prog;
+		struct sk_buff *skb;
+		u32 metasize = 0;
+		void *va, *data;
+		dma_addr_t addr;
+		u32 frag_size;
+#if MLX5E_BATCHED_METADATA_LENGTH == 2
+		u16 *metadata_value;
+#else 
+		u32 *metadata_value;
+#endif
 
+		// setting pointers 
+		va             = page_address(frag_page->page) + wi->offset;
+		data           = va + rx_headroom + MLX5E_BATCHED_METADATA_LENGTH;
+		metadata_value = va + rx_headroom;
+		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
+
+		addr = page_pool_get_dma_addr(frag_page->page);
+		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
+				frag_size, rq->buff.map_dir);
+		net_prefetch(data);
+
+		
+		void* data_array[2];
+		void* data_end_array[2];
+
+		data_array[0] = data;
+		data_end_array[0] = data + *metadata_value;
+		data_array[1] = data + *metadata_value;
+		data_end_array[1] = va + rx_headroom + cqe_bcnt;
+
+		prog = rcu_dereference(rq->xdp_prog);
+
+		u32 act;
+		int err;
+		u32 size; 
+		if (prog) {
+			struct mlx5e_xdp_buff mxbuf;
+
+			net_prefetchw(va); /* xdp_frame data area */
+			mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
+			     cqe_bcnt, &mxbuf);
+
+			// Inline processing 
+			struct xdp_buff* xdp = &mxbuf.xdp;
+			act = bpf_prog_run_xdp(prog, xdp);
+			// Iterate over the two responses
+		} else {
+			act = XDP_PASS << 4 | XDP_PASS;
+		}
+		for (int i = 0; i < 2; i++) {
+			switch (act & 0xF) {
+				case XDP_PASS:
+					// Alloc skb and send packet above
+					size = (data_end_array[i] - data_array[i]);
+					//skb = mlx5e_build_linear_skb(rq, data_array[i], size, 0, size, 0);
+					///* probably for XDP */
+					//if (!skb) {
+					//	if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
+					//		wi->frag_page->frags++;
+					//		mlx5_wq_cyc_pop(wq);
+					//		break;
+					//	}
+					//}
+					/* queue up for recycling/reuse */
+					skb = napi_alloc_skb(rq->cq.napi, size);
+					if (!skb) {
+						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
+							wi->frag_page->frags++;
+							mlx5_wq_cyc_pop(wq);
+							break;
+						}
+					}
+					skb_mark_for_recycle(skb);
+					skb_put_data(skb, data, size);
+					skb->protocol = eth_type_trans(skb, rq->netdev);
+					skb->ip_summed = CHECKSUM_NONE;
+					//skb_record_rx_queue(skb, rq);
+					napi_gro_receive(rq->cq.napi, skb);
+				//frag_page->frags++;
+				//mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
+
+				//if (mlx5e_cqe_regb_chain(cqe))
+				//	if (!mlx5e_tc_update_skb_nic(cqe, skb)) {
+				//		dev_kfree_skb_any(skb);
+				//		goto wq_cyc_pop;
+				//	}
+
+				//napi_gro_receive(rq->cq.napi, skb);
+				case XDP_TX:
+					//TODO: correct data pointers
+					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp)))
+					//	goto xdp_abort;
+					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
+				case XDP_REDIRECT:
+					/* When XDP enabled then page-refcnt==1 here */
+					//TODO: correct data pointers
+					//err = xdp_do_redirect(rq->netdev, xdp, prog);
+					//if (unlikely(err))
+					//	goto xdp_abort;
+					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
+					//__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
+					//rq->stats->xdp_redirect++;
+				default:
+					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
+					fallthrough;
+				case XDP_ABORTED:
+				xdp_abort:
+					//trace_xdp_exception(rq->netdev, prog, act);
+					//fallthrough;
+					case XDP_DROP:
+						rq->stats->xdp_drop++;
+				//return true;
+			}
+			act >>= 4; 
+		}
+	}
 wq_cyc_pop:
 	mlx5_wq_cyc_pop(wq);
 }
