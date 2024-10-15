@@ -1913,6 +1913,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 	}
 
 	printk("Metadata inside napi: %u\n", metadata_enabled);
+	// print the netdev features 
+	printk("Rx checksum: %llu\n", (rq->netdev->features & NETIF_F_RXCSUM));
 	if (!metadata_enabled) {
 		skb = INDIRECT_CALL_3(rq->wqe.skb_from_cqe,
 			mlx5e_skb_from_cqe_linear,
@@ -1941,7 +1943,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		u16 rx_headroom = rq->buff.headroom;
 		struct bpf_prog *prog;
 		struct sk_buff *skb;
-		u32 metasize = 0;
 		void *va, *data;
 		dma_addr_t addr;
 		u32 frag_size;
