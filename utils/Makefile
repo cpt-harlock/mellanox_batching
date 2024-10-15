@@ -1,5 +1,12 @@
 TARGET = ioctl
-all:
-	gcc ioctl.c -o ioctl
+OBJS = $(patsubst %,%.o,$(TARGET))
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	gcc $^ -o $@
+
+$(OBJS): %.o: %.c
+	gcc -c $^ -o $@
 clean:
-	rm ioctl
+	rm $(TARGET) $(OBJS)
