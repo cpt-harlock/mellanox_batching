@@ -1696,6 +1696,9 @@ mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
 	dma_addr_t addr;
 	u32 frag_size;
 
+	// print the function name
+	printk("mlx5e_skb_from_cqe_linear\n");
+
 	va             = page_address(frag_page->page) + wi->offset;
 	data           = va + rx_headroom;
 	frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
@@ -1809,6 +1812,7 @@ mlx5e_skb_from_cqe_nonlinear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi
 	u32 truesize;
 	void *va;
 
+	printk("mlx5e_skb_from_cqe_nonlinear\n");
 	frag_page = wi->frag_page;
 
 	va = page_address(frag_page->page) + wi->offset;
