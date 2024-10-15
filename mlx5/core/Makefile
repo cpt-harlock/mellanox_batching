@@ -175,3 +175,13 @@ all:
 clean:
 	$(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) clean
 
+
+
+reload:
+	sudo ip link set ens8191f0np0 down
+	sudo rmmod mlx5_core
+	sudo insmod mlx5_core.ko
+	sudo ip addr add dev ens8191f0np0 192.168.101.2/24
+	sudo ip link set ens8191f0np0 up
+	sudo ip link set dev ens8191f0np0 promisc on
+	sudo ethtool --set-priv-flags ens8191f0np0 rx_striding_rq off
