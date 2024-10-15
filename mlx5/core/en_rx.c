@@ -1967,8 +1967,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		void* data_end_array[2];
 
 		data_array[0] = data;
-		data_end_array[0] = data + *metadata_value;
-		data_array[1] = data + *metadata_value;
+		data_end_array[0] = data + be16_to_cpu(*metadata_value);
+		data_array[1] = data + be16_to_cpu(*metadata_value);
 		data_end_array[1] = va + rx_headroom + cqe_bcnt;
 
 		prog = rcu_dereference(rq->xdp_prog);
@@ -1992,10 +1992,12 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			act = XDP_PASS << 4 | XDP_PASS;
 		}
 		for (int i = 0; i < 2; i++) {
+			printk("Packet %d\n", i);
 			switch (act & 0xF) {
 				case XDP_PASS:
 					// Alloc skb and send packet above
 					size = (data_end_array[i] - data_array[i]);
+					printk("Size %u\n", size);
 					//skb = mlx5e_build_linear_skb(rq, data_array[i], size, 0, size, 0);
 					///* probably for XDP */
 					//if (!skb) {
@@ -2011,12 +2013,12 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
 							wi->frag_page->frags++;
 							mlx5_wq_cyc_pop(wq);
-							break;
 						}
+						break;
 					}
 					/* queue up for recycling/reuse */
 					skb_mark_for_recycle(skb);
-					skb_put_data(skb, data, size);
+					skb_put_data(skb, data_array[i], size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
 					skb->ip_summed = CHECKSUM_NONE;
 					//skb_record_rx_queue(skb, rq);
@@ -2055,10 +2057,11 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				xdp_abort:
 					//trace_xdp_exception(rq->netdev, prog, act);
 					//fallthrough;
-				case XDP_DROP:
-					rq->stats->xdp_drop++;
+					case XDP_DROP:
+						rq->stats->xdp_drop++;
 				//return true;
 			}
+
 			act >>= 4; 
 		}
 	}
@@ -2520,6 +2523,7 @@ static void mlx5e_handle_rx_cqe_mpwrq_shampo(struct mlx5e_rq *rq, struct mlx5_cq
 	wi = mlx5e_get_mpw_info(rq, wqe_id);
 	wi->consumed_strides += cstrides;
 
+	printk("Inside cqe_mpwrq_shampo\n");
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
 		mlx5e_handle_rx_err_cqe(rq, cqe);
 		goto mpwrq_cqe_out;
@@ -2598,7 +2602,7 @@ static void mlx5e_handle_rx_cqe_mpwrq(struct mlx5e_rq *rq, struct mlx5_cqe64 *cq
 	u16 cqe_bcnt;
 
 	wi->consumed_strides += cstrides;
-
+	printk("Inside cqe_mpwrq\n");
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
 		mlx5e_handle_rx_err_cqe(rq, cqe);
 		goto mpwrq_cqe_out;
