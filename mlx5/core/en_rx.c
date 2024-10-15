@@ -2020,7 +2020,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					skb_mark_for_recycle(skb);
 					skb_put_data(skb, data_array[i], size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
-					skb->ip_summed = CHECKSUM_NONE;
+					skb->ip_summed = CHECKSUM_UNNECESSARY;
 					//skb_record_rx_queue(skb, rq);
 					napi_gro_receive(rq->cq.napi, skb);
 					break;
