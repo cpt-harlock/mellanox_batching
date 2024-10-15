@@ -1912,6 +1912,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		goto wq_cyc_pop;
 	}
 
+	printk("Metadata inside napi: %u\n", metadata_enabled);
 	if (!metadata_enabled) {
 		skb = INDIRECT_CALL_3(rq->wqe.skb_from_cqe,
 			mlx5e_skb_from_cqe_linear,
@@ -1935,7 +1936,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
-		//TODO: inline processing of packets directly here
+		//TODO: tbc
 		struct mlx5e_frag_page *frag_page = wi->frag_page;
 		u16 rx_headroom = rq->buff.headroom;
 		struct bpf_prog *prog;
@@ -1975,6 +1976,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		u32 act;
 		int err;
 		u32 size; 
+		printk("Inside batching section\n");
 		if (prog) {
 			struct mlx5e_xdp_buff mxbuf;
 
@@ -2003,21 +2005,23 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//		break;
 					//	}
 					//}
-					/* queue up for recycling/reuse */
 					skb = napi_alloc_skb(rq->cq.napi, size);
 					if (!skb) {
+						printk("Unable to alloc skb\n");
 						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
 							wi->frag_page->frags++;
 							mlx5_wq_cyc_pop(wq);
 							break;
 						}
 					}
+					/* queue up for recycling/reuse */
 					skb_mark_for_recycle(skb);
 					skb_put_data(skb, data, size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
 					skb->ip_summed = CHECKSUM_NONE;
 					//skb_record_rx_queue(skb, rq);
 					napi_gro_receive(rq->cq.napi, skb);
+					break;
 				//frag_page->frags++;
 				//mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
 
@@ -2033,6 +2037,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp)))
 					//	goto xdp_abort;
 					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
+					break;
 				case XDP_REDIRECT:
 					/* When XDP enabled then page-refcnt==1 here */
 					//TODO: correct data pointers
@@ -2042,6 +2047,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
 					//__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
 					//rq->stats->xdp_redirect++;
+					break;
 				default:
 					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
 					fallthrough;
@@ -2049,8 +2055,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				xdp_abort:
 					//trace_xdp_exception(rq->netdev, prog, act);
 					//fallthrough;
-					case XDP_DROP:
-						rq->stats->xdp_drop++;
+				case XDP_DROP:
+					rq->stats->xdp_drop++;
 				//return true;
 			}
 			act >>= 4; 
