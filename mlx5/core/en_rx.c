@@ -1940,6 +1940,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				goto wq_cyc_pop;
 			}
 
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
 		//TODO: tbc
