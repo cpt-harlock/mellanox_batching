@@ -1,4 +1,5 @@
 #include "../mlx5/core/en_ioctl.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -29,12 +30,24 @@ int main(int argc, char* argv[]) {
 			close(fd);
 			return -1;
 		}
-	} else {
+	} else if (cmd == 1) {
 		if (ioctl(fd, SET_METADATA) < 0) {
 			perror("Failed to write data using ioctl");
 			close(fd);
 			return -1;
 		}
+	} else if (cmd == 2) {
+		uint64_t data = 0;
+		if (ioctl(fd, READ_RX_PACKETS, &data) < 0) {
+			perror("Failed to write data using ioctl");
+			close(fd);
+			return -1;
+		}
+		printf("Received %lu packets\n", data);
+	} else {
+		printf("Invalid command number\n");
+		close(fd);
+		return -1;
 	}
 	// Close the device file
 	close(fd);

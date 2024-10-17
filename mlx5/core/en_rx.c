@@ -61,6 +61,7 @@
 #include "en/devlink.h"
 
 extern u8 metadata_enabled;
+extern u64 rx_packets;
 static struct sk_buff *
 mlx5e_skb_from_cqe_mpwrq_linear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *wi,
 				struct mlx5_cqe64 *cqe, u16 cqe_bcnt, u32 head_offset,
@@ -1446,7 +1447,7 @@ mlx5e_skb_csum_fixup(struct sk_buff *skb, int network_depth, __be16 proto,
 	int pkt_len;
 
 	/* Fixup vlan headers, if any */
-	if (network_depth > ETH_HLEN)
+	if (network_depth > ETH_HLEN) {
 		/* CQE csum is calculated from the IP header and does
 		 * not cover VLAN headers (if present). This will add
 		 * the checksum manually.
@@ -1454,6 +1455,7 @@ mlx5e_skb_csum_fixup(struct sk_buff *skb, int network_depth, __be16 proto,
 		skb->csum = csum_partial(skb->data + ETH_HLEN,
 					 network_depth - ETH_HLEN,
 					 skb->csum);
+	}
 
 	/* Fixup tail padding, if any */
 	switch (proto) {
@@ -1496,8 +1498,9 @@ static inline void mlx5e_handle_csum(struct net_device *netdev,
 
 	/* True when explicitly set via priv flag, or XDP prog is loaded */
 	if (test_bit(MLX5E_RQ_STATE_NO_CSUM_COMPLETE, &rq->state) ||
-	    get_cqe_tls_offload(cqe))
+	    get_cqe_tls_offload(cqe)) {
 		goto csum_unnecessary;
+	}
 
 	/* CQE csum doesn't cover padding octets in short ethernet
 	 * frames. And the pad field is appended prior to calculating
@@ -1507,8 +1510,9 @@ static inline void mlx5e_handle_csum(struct net_device *netdev,
 	 * IP headers, so we simply force all those small frames to be
 	 * CHECKSUM_UNNECESSARY even if they are not padded.
 	 */
-	if (short_frame(skb->len))
+	if (short_frame(skb->len)) {
 		goto csum_unnecessary;
+	}
 
 	if (likely(is_last_ethertype_ip(skb, &network_depth, &proto))) {
 		if (unlikely(get_ip_proto(skb, network_depth, proto) == IPPROTO_SCTP))
@@ -1697,7 +1701,6 @@ mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
 	u32 frag_size;
 
 	// print the function name
-	printk("mlx5e_skb_from_cqe_linear\n");
 
 	va             = page_address(frag_page->page) + wi->offset;
 	data           = va + rx_headroom;
@@ -1812,7 +1815,6 @@ mlx5e_skb_from_cqe_nonlinear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi
 	u32 truesize;
 	void *va;
 
-	printk("mlx5e_skb_from_cqe_nonlinear\n");
 	frag_page = wi->frag_page;
 
 	va = page_address(frag_page->page) + wi->offset;
@@ -1916,10 +1918,13 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		goto wq_cyc_pop;
 	}
 
-	printk("Metadata inside napi: %u\n", metadata_enabled);
+	//printk("Metadata inside napi: %u\n", metadata_enabled);
 	// print the netdev features 
-	printk("Rx checksum: %llu\n", (rq->netdev->features & NETIF_F_RXCSUM));
+	//if (rq->netdev->features & NETIF_F_RXCSUM) {
+	//	printk("Rx checksum offload enabled\n");
+	//}
 	if (!metadata_enabled) {
+		rx_packets++;
 		skb = INDIRECT_CALL_3(rq->wqe.skb_from_cqe,
 			mlx5e_skb_from_cqe_linear,
 			mlx5e_skb_from_cqe_nonlinear,
@@ -1932,6 +1937,18 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			goto wq_cyc_pop;
 		}
 
+		//printk("Printing checksum before complete\n");
+		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
+		//	printk("chcksum unnec\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
+		//	printk("chcksum complete\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_NONE) {
+		//	printk("chcksum none\n");
+		//} else {
+		//	printk("chcksum partial\n");
+		//} 
 		mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
 
 		if (mlx5e_cqe_regb_chain(cqe))
@@ -1940,10 +1957,24 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				goto wq_cyc_pop;
 			}
 
-		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		//printk("Printing checksum after complete\n");
+		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
+		//	printk("chcksum unnec\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
+		//	printk("chcksum complete\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_NONE) {
+		//	printk("chcksum none\n");
+		//} else {
+		//	printk("chcksum partial\n");
+		//} 
+		//skb->ip_summed = CHECKSUM_UNNECESSARY;
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
 		//TODO: tbc
+		rx_packets += 2;
+		
 		struct mlx5e_frag_page *frag_page = wi->frag_page;
 		u16 rx_headroom = rq->buff.headroom;
 		struct bpf_prog *prog;
@@ -1982,7 +2013,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		u32 act;
 		int err;
 		u32 size; 
-		printk("Inside batching section\n");
 		if (prog) {
 			struct mlx5e_xdp_buff mxbuf;
 
@@ -1998,12 +2028,10 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			act = XDP_PASS << 4 | XDP_PASS;
 		}
 		for (int i = 0; i < 2; i++) {
-			printk("Packet %d\n", i);
 			switch (act & 0xF) {
 				case XDP_PASS:
 					// Alloc skb and send packet above
 					size = (data_end_array[i] - data_array[i]);
-					printk("Size %u\n", size);
 					//skb = mlx5e_build_linear_skb(rq, data_array[i], size, 0, size, 0);
 					///* probably for XDP */
 					//if (!skb) {
@@ -2013,6 +2041,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//		break;
 					//	}
 					//}
+					// Print data, data_end and size
 					skb = napi_alloc_skb(rq->cq.napi, size);
 					if (!skb) {
 						printk("Unable to alloc skb\n");
