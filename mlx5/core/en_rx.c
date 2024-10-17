@@ -1937,18 +1937,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			goto wq_cyc_pop;
 		}
 
-		//printk("Printing checksum before complete\n");
-		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
-		//	printk("chcksum unnec\n");
-		//} else 
-		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
-		//	printk("chcksum complete\n");
-		//} else 
-		//if (skb->ip_summed == CHECKSUM_NONE) {
-		//	printk("chcksum none\n");
-		//} else {
-		//	printk("chcksum partial\n");
-		//} 
 		mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
 
 		if (mlx5e_cqe_regb_chain(cqe))
@@ -1957,23 +1945,11 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				goto wq_cyc_pop;
 			}
 
-		//printk("Printing checksum after complete\n");
-		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
-		//	printk("chcksum unnec\n");
-		//} else 
-		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
-		//	printk("chcksum complete\n");
-		//} else 
-		//if (skb->ip_summed == CHECKSUM_NONE) {
-		//	printk("chcksum none\n");
-		//} else {
-		//	printk("chcksum partial\n");
-		//} 
-		//skb->ip_summed = CHECKSUM_UNNECESSARY;
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
 		//TODO: tbc
 		rx_packets += 2;
+		
 		
 		struct mlx5e_frag_page *frag_page = wi->frag_page;
 		u16 rx_headroom = rq->buff.headroom;
@@ -2013,6 +1989,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		u32 act;
 		int err;
 		u32 size; 
+		struct xdp_buff xdp_tx;
 		if (prog) {
 			struct mlx5e_xdp_buff mxbuf;
 
@@ -2032,16 +2009,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				case XDP_PASS:
 					// Alloc skb and send packet above
 					size = (data_end_array[i] - data_array[i]);
-					//skb = mlx5e_build_linear_skb(rq, data_array[i], size, 0, size, 0);
-					///* probably for XDP */
-					//if (!skb) {
-					//	if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
-					//		wi->frag_page->frags++;
-					//		mlx5_wq_cyc_pop(wq);
-					//		break;
-					//	}
-					//}
-					// Print data, data_end and size
 					skb = napi_alloc_skb(rq->cq.napi, size);
 					if (!skb) {
 						printk("Unable to alloc skb\n");
@@ -2056,34 +2023,39 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					skb_put_data(skb, data_array[i], size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
 					skb->ip_summed = CHECKSUM_UNNECESSARY;
-					//skb_record_rx_queue(skb, rq);
+					skb_record_rx_queue(skb, rq->ix);
 					napi_gro_receive(rq->cq.napi, skb);
 					break;
-				//frag_page->frags++;
-				//mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
 
-				//if (mlx5e_cqe_regb_chain(cqe))
-				//	if (!mlx5e_tc_update_skb_nic(cqe, skb)) {
-				//		dev_kfree_skb_any(skb);
-				//		goto wq_cyc_pop;
-				//	}
-
-				//napi_gro_receive(rq->cq.napi, skb);
 				case XDP_TX:
 					//TODO: correct data pointers
-					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp)))
-					//	goto xdp_abort;
+					// Fill xdp_buff using data_array[i] and data_end_array[i]
+					xdp_tx.data = data_array[i];
+					xdp_tx.data_end = data_end_array[i];
+					xdp_tx.data_meta = data_array[i];
+					xdp_tx.data_hard_start = data_array[i];
+					xdp_tx.rxq = &rq->xdp_rxq;
+
+					if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx)))
+						goto xdp_abort;
 					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
 					break;
 				case XDP_REDIRECT:
 					/* When XDP enabled then page-refcnt==1 here */
-					//TODO: correct data pointers
-					//err = xdp_do_redirect(rq->netdev, xdp, prog);
-					//if (unlikely(err))
-					//	goto xdp_abort;
-					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
-					//__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
-					//rq->stats->xdp_redirect++;
+					// Fill xdp_buff using data_array[i] and data_end_array[i]
+					xdp_tx.data = data_array[i];
+					xdp_tx.data_end = data_end_array[i];
+					xdp_tx.data_meta = data_array[i];
+					xdp_tx.data_hard_start = data_array[i];
+					xdp_tx.rxq = &rq->xdp_rxq;
+
+					//TODO: check the netdev 
+					err = xdp_do_redirect(rq->netdev, &xdp_tx, prog);
+					if (unlikely(err))
+						goto xdp_abort;
+					__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
+					__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
+					rq->stats->xdp_redirect++;
 					break;
 				default:
 					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
