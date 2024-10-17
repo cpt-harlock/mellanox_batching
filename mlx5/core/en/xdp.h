@@ -113,6 +113,10 @@ void mlx5e_xdp_rx_poll_complete(struct mlx5e_rq *rq);
 int mlx5e_xdp_xmit(struct net_device *dev, int n, struct xdp_frame **frames,
 		   u32 flags);
 
+bool
+mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
+		    struct xdp_buff *xdp);
+
 extern const struct xdp_metadata_ops mlx5e_xdp_metadata_ops;
 extern const struct xsk_tx_metadata_ops mlx5e_xsk_tx_metadata_ops;
 

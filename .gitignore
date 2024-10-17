@@ -3,3 +3,7 @@
 *.ko
 *.d
 *.idx
+*mod*
+*.json
+*.pcap
+*.symvers

@@ -167,9 +167,22 @@ mlx5_core-$(CONFIG_MLX5_SF_MANAGER) += sf/cmd.o sf/hw_table.o sf/devlink.o
 obj-$(CONFIG_MLX5_DPLL) += mlx5_dpll.o
 mlx5_dpll-y :=	dpll.o
 
+COMPILEDB = $(which compiledb)
+
 all:
-	compiledb $(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) modules
+	$(MAKE) -j 20 -C /lib/modules/`uname -r`/build M=$(PWD) modules
 
 clean:
 	$(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) clean
 
+
+
+reload:
+	-sudo ip link set ens8191f0np0 down
+	-sudo rmmod mlx5_core
+	-sudo insmod mlx5_core.ko
+	-sudo ip addr add dev ens8191f0np0 192.168.101.2/24
+	-sudo ip link set ens8191f0np0 up
+	-sudo ethtool --set-priv-flags ens8191f0np0 rx_striding_rq off
+	-sudo ip link set ens8191f0np0 promisc on
+	-sudo ../../utils/ioctl 1

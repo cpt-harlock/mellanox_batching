@@ -49,6 +49,7 @@
 #include "en_ioctl.h"
 
 extern u8 metadata_enabled;
+extern u64 rx_packets;
 
 struct mlx5_ifc_mbox_out_bits {
 	u8         status[0x8];
@@ -1303,8 +1304,22 @@ static long metadata_ioctl(struct file* file,  unsigned int cmd, unsigned long a
 	switch(cmd) {
 		case SET_METADATA:
 			metadata_enabled = 1;
+			printk("Set metadata: %u\n", metadata_enabled);
+			break;	
 		case RESET_METADATA:
 			metadata_enabled = 0;
+			printk("Reset metadata: %u\n", metadata_enabled);
+			break;	
+		case READ_RX_PACKETS:
+			// write to user space rx_packets
+			if (copy_to_user((void *)arg, &rx_packets, sizeof(rx_packets))) {
+				printk("Failed to copy rx_packets to user space\n");
+				return -EFAULT;
+			}
+			break;
+		default:
+			printk("Invalid command\n");
+			return -EINVAL;
 	}
 	return 0;
 }

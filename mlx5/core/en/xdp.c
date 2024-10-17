@@ -57,7 +57,7 @@ int mlx5e_xdp_max_mtu(struct mlx5e_params *params, struct mlx5e_xsk_param *xsk)
 	return MLX5E_HW2SW_MTU(params, SKB_MAX_HEAD(hr));
 }
 
-static inline bool
+inline bool
 mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 		    struct xdp_buff *xdp)
 {

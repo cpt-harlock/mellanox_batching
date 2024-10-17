@@ -61,6 +61,7 @@
 #include "en/devlink.h"
 
 extern u8 metadata_enabled;
+extern u64 rx_packets;
 static struct sk_buff *
 mlx5e_skb_from_cqe_mpwrq_linear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *wi,
 				struct mlx5_cqe64 *cqe, u16 cqe_bcnt, u32 head_offset,
@@ -1446,7 +1447,7 @@ mlx5e_skb_csum_fixup(struct sk_buff *skb, int network_depth, __be16 proto,
 	int pkt_len;
 
 	/* Fixup vlan headers, if any */
-	if (network_depth > ETH_HLEN)
+	if (network_depth > ETH_HLEN) {
 		/* CQE csum is calculated from the IP header and does
 		 * not cover VLAN headers (if present). This will add
 		 * the checksum manually.
@@ -1454,6 +1455,7 @@ mlx5e_skb_csum_fixup(struct sk_buff *skb, int network_depth, __be16 proto,
 		skb->csum = csum_partial(skb->data + ETH_HLEN,
 					 network_depth - ETH_HLEN,
 					 skb->csum);
+	}
 
 	/* Fixup tail padding, if any */
 	switch (proto) {
@@ -1496,8 +1498,9 @@ static inline void mlx5e_handle_csum(struct net_device *netdev,
 
 	/* True when explicitly set via priv flag, or XDP prog is loaded */
 	if (test_bit(MLX5E_RQ_STATE_NO_CSUM_COMPLETE, &rq->state) ||
-	    get_cqe_tls_offload(cqe))
+	    get_cqe_tls_offload(cqe)) {
 		goto csum_unnecessary;
+	}
 
 	/* CQE csum doesn't cover padding octets in short ethernet
 	 * frames. And the pad field is appended prior to calculating
@@ -1507,8 +1510,9 @@ static inline void mlx5e_handle_csum(struct net_device *netdev,
 	 * IP headers, so we simply force all those small frames to be
 	 * CHECKSUM_UNNECESSARY even if they are not padded.
 	 */
-	if (short_frame(skb->len))
+	if (short_frame(skb->len)) {
 		goto csum_unnecessary;
+	}
 
 	if (likely(is_last_ethertype_ip(skb, &network_depth, &proto))) {
 		if (unlikely(get_ip_proto(skb, network_depth, proto) == IPPROTO_SCTP))
@@ -1669,14 +1673,16 @@ static void mlx5e_fill_mxbuf(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 	mxbuf->rq = rq;
 }
 
-//TODO: implement this function for batched XDP
 static void mlx5e_fill_mxbuf_metadata(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 			     void *va, u16 headroom, u32 frame_sz, u32 len,
 			     struct mlx5e_xdp_buff *mxbuf)
 {
 	xdp_init_buff(&mxbuf->xdp, frame_sz, &rq->xdp_rxq);
-	//xdp_prepare_buff_metadata(&mxbuf->xdp, va, headroom, len, true, METADATA_LENGTH);
-	xdp_prepare_buff(&mxbuf->xdp, va, headroom, len, true);
+	char *data = va + headroom + MLX5E_BATCHED_METADATA_LENGTH;
+	mxbuf->xdp.data_hard_start = va;
+	mxbuf->xdp.data = data;
+	mxbuf->xdp.data_end = va + headroom + len;
+	mxbuf->xdp.data_meta = va + headroom;
 	mxbuf->cqe = cqe;
 	mxbuf->rq = rq;
 }
@@ -1693,6 +1699,8 @@ mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
 	void *va, *data;
 	dma_addr_t addr;
 	u32 frag_size;
+
+	// print the function name
 
 	va             = page_address(frag_page->page) + wi->offset;
 	data           = va + rx_headroom;
@@ -1910,7 +1918,13 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		goto wq_cyc_pop;
 	}
 
+	//printk("Metadata inside napi: %u\n", metadata_enabled);
+	// print the netdev features 
+	//if (rq->netdev->features & NETIF_F_RXCSUM) {
+	//	printk("Rx checksum offload enabled\n");
+	//}
 	if (!metadata_enabled) {
+		rx_packets++;
 		skb = INDIRECT_CALL_3(rq->wqe.skb_from_cqe,
 			mlx5e_skb_from_cqe_linear,
 			mlx5e_skb_from_cqe_nonlinear,
@@ -1923,6 +1937,18 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			goto wq_cyc_pop;
 		}
 
+		//printk("Printing checksum before complete\n");
+		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
+		//	printk("chcksum unnec\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
+		//	printk("chcksum complete\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_NONE) {
+		//	printk("chcksum none\n");
+		//} else {
+		//	printk("chcksum partial\n");
+		//} 
 		mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
 
 		if (mlx5e_cqe_regb_chain(cqe))
@@ -1931,21 +1957,149 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				goto wq_cyc_pop;
 			}
 
+		//printk("Printing checksum after complete\n");
+		//if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
+		//	printk("chcksum unnec\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_COMPLETE) {
+		//	printk("chcksum complete\n");
+		//} else 
+		//if (skb->ip_summed == CHECKSUM_NONE) {
+		//	printk("chcksum none\n");
+		//} else {
+		//	printk("chcksum partial\n");
+		//} 
+		//skb->ip_summed = CHECKSUM_UNNECESSARY;
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
-		//TODO: implement new function that perform same skb-from-cqe transformation
-		//but considering batched packets  
-		struct sk_buff* skb_array;
-		skb_array = INDIRECT_CALL_3(rq->wqe.skb_from_cqe_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				mlx5e_skb_from_cqe_linear_batched,
-				//mlx5e_skb_from_cqe_nonlinear_batched,
-				//mlx5e_xsk_skb_from_cqe_linear_batched,
-				rq, wi, cqe, cqe_bcnt);
-		//TODO:  
-	}
+		//TODO: tbc
+		rx_packets += 2;
+		
+		struct mlx5e_frag_page *frag_page = wi->frag_page;
+		u16 rx_headroom = rq->buff.headroom;
+		struct bpf_prog *prog;
+		struct sk_buff *skb;
+		void *va, *data;
+		dma_addr_t addr;
+		u32 frag_size;
+#if MLX5E_BATCHED_METADATA_LENGTH == 2
+		u16 *metadata_value;
+#else 
+		u32 *metadata_value;
+#endif
 
+		// setting pointers 
+		va             = page_address(frag_page->page) + wi->offset;
+		data           = va + rx_headroom + MLX5E_BATCHED_METADATA_LENGTH;
+		metadata_value = va + rx_headroom;
+		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
+
+		addr = page_pool_get_dma_addr(frag_page->page);
+		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
+				frag_size, rq->buff.map_dir);
+		net_prefetch(data);
+
+		
+		void* data_array[2];
+		void* data_end_array[2];
+
+		data_array[0] = data;
+		data_end_array[0] = data + be16_to_cpu(*metadata_value);
+		data_array[1] = data + be16_to_cpu(*metadata_value);
+		data_end_array[1] = va + rx_headroom + cqe_bcnt;
+
+		prog = rcu_dereference(rq->xdp_prog);
+
+		u32 act;
+		int err;
+		u32 size; 
+		if (prog) {
+			struct mlx5e_xdp_buff mxbuf;
+
+			net_prefetchw(va); /* xdp_frame data area */
+			mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
+			     cqe_bcnt, &mxbuf);
+
+			// Inline processing 
+			struct xdp_buff* xdp = &mxbuf.xdp;
+			act = bpf_prog_run_xdp(prog, xdp);
+			// Iterate over the two responses
+		} else {
+			act = XDP_PASS << 4 | XDP_PASS;
+		}
+		for (int i = 0; i < 2; i++) {
+			switch (act & 0xF) {
+				case XDP_PASS:
+					// Alloc skb and send packet above
+					size = (data_end_array[i] - data_array[i]);
+					//skb = mlx5e_build_linear_skb(rq, data_array[i], size, 0, size, 0);
+					///* probably for XDP */
+					//if (!skb) {
+					//	if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
+					//		wi->frag_page->frags++;
+					//		mlx5_wq_cyc_pop(wq);
+					//		break;
+					//	}
+					//}
+					// Print data, data_end and size
+					skb = napi_alloc_skb(rq->cq.napi, size);
+					if (!skb) {
+						printk("Unable to alloc skb\n");
+						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
+							wi->frag_page->frags++;
+							mlx5_wq_cyc_pop(wq);
+						}
+						break;
+					}
+					/* queue up for recycling/reuse */
+					skb_mark_for_recycle(skb);
+					skb_put_data(skb, data_array[i], size);
+					skb->protocol = eth_type_trans(skb, rq->netdev);
+					skb->ip_summed = CHECKSUM_UNNECESSARY;
+					//skb_record_rx_queue(skb, rq);
+					napi_gro_receive(rq->cq.napi, skb);
+					break;
+				//frag_page->frags++;
+				//mlx5e_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
+
+				//if (mlx5e_cqe_regb_chain(cqe))
+				//	if (!mlx5e_tc_update_skb_nic(cqe, skb)) {
+				//		dev_kfree_skb_any(skb);
+				//		goto wq_cyc_pop;
+				//	}
+
+				//napi_gro_receive(rq->cq.napi, skb);
+				case XDP_TX:
+					//TODO: correct data pointers
+					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp)))
+					//	goto xdp_abort;
+					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
+					break;
+				case XDP_REDIRECT:
+					/* When XDP enabled then page-refcnt==1 here */
+					//TODO: correct data pointers
+					//err = xdp_do_redirect(rq->netdev, xdp, prog);
+					//if (unlikely(err))
+					//	goto xdp_abort;
+					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
+					//__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
+					//rq->stats->xdp_redirect++;
+					break;
+				default:
+					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
+					fallthrough;
+				case XDP_ABORTED:
+				xdp_abort:
+					//trace_xdp_exception(rq->netdev, prog, act);
+					//fallthrough;
+					case XDP_DROP:
+						rq->stats->xdp_drop++;
+				//return true;
+			}
+
+			act >>= 4; 
+		}
+	}
 wq_cyc_pop:
 	mlx5_wq_cyc_pop(wq);
 }
@@ -2404,6 +2558,7 @@ static void mlx5e_handle_rx_cqe_mpwrq_shampo(struct mlx5e_rq *rq, struct mlx5_cq
 	wi = mlx5e_get_mpw_info(rq, wqe_id);
 	wi->consumed_strides += cstrides;
 
+	printk("Inside cqe_mpwrq_shampo\n");
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
 		mlx5e_handle_rx_err_cqe(rq, cqe);
 		goto mpwrq_cqe_out;
@@ -2482,7 +2637,7 @@ static void mlx5e_handle_rx_cqe_mpwrq(struct mlx5e_rq *rq, struct mlx5_cqe64 *cq
 	u16 cqe_bcnt;
 
 	wi->consumed_strides += cstrides;
-
+	printk("Inside cqe_mpwrq\n");
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
 		mlx5e_handle_rx_err_cqe(rq, cqe);
 		goto mpwrq_cqe_out;
