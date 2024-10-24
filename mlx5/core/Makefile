@@ -175,8 +175,6 @@ all:
 clean:
 	$(MAKE) -C /lib/modules/`uname -r`/build M=$(PWD) clean
 
-
-
 reload:
 	-sudo ip link set ens8191f0np0 down
 	-sudo rmmod mlx5_core
@@ -186,3 +184,5 @@ reload:
 	-sudo ethtool --set-priv-flags ens8191f0np0 rx_striding_rq off
 	-sudo ip link set ens8191f0np0 promisc on
 	-sudo ../../utils/ioctl 1
+	-sudo ethtool --set-rxfh-indir ens8191f0np0 equal 1
+	-sudo ethtool --set-priv-flags ens8191f0np0 xdp_tx_mpwqe off

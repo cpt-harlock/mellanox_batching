@@ -58,6 +58,7 @@
 #include "en/health.h"
 #include "en/params.h"
 #include "devlink.h"
+#include <linux/bpf_trace.h>
 #include "en/devlink.h"
 
 extern u8 metadata_enabled;
@@ -1974,15 +1975,19 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
 				frag_size, rq->buff.map_dir);
 		net_prefetch(data);
+		//net_prefetch(data + be16_to_cpu(*metadata_value));
 
 		
 		void* data_array[2];
 		void* data_end_array[2];
+		void* data_hard_start_array[2];
 
 		data_array[0] = data;
 		data_end_array[0] = data + be16_to_cpu(*metadata_value);
+		data_hard_start_array[0] = va;
 		data_array[1] = data + be16_to_cpu(*metadata_value);
 		data_end_array[1] = va + rx_headroom + cqe_bcnt;
+		data_hard_start_array[1] = data_array[1] - (sizeof(struct xdp_frame) + 16);	
 
 		prog = rcu_dereference(rq->xdp_prog);
 
@@ -2000,6 +2005,9 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			// Inline processing 
 			struct xdp_buff* xdp = &mxbuf.xdp;
 			act = bpf_prog_run_xdp(prog, xdp);
+			rx_headroom = mxbuf.xdp.data - mxbuf.xdp.data_hard_start;
+			//metasize = mxbuf.xdp.data - mxbuf.xdp.data_meta;
+			cqe_bcnt = mxbuf.xdp.data_end - mxbuf.xdp.data;
 			// Iterate over the two responses
 		} else {
 			act = XDP_PASS << 4 | XDP_PASS;
@@ -2033,12 +2041,18 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					xdp_tx.data = data_array[i];
 					xdp_tx.data_end = data_end_array[i];
 					xdp_tx.data_meta = data_array[i];
-					xdp_tx.data_hard_start = data_array[i];
+					xdp_tx.data_hard_start = data_hard_start_array[i];
 					xdp_tx.rxq = &rq->xdp_rxq;
+					//xdp_tx.frame_sz = cqe_bcnt;
+					xdp_tx.frame_sz = frag_size;
 
-					if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx)))
+					//printk("Packet  %d\n", i);
+					//printk("XDP_TX\n");
+					if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx))) {
+						printk("Unable to xmit xdp buff\n");
 						goto xdp_abort;
-					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
+					}
+					__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
 					break;
 				case XDP_REDIRECT:
 					/* When XDP enabled then page-refcnt==1 here */
@@ -2061,12 +2075,11 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
 					fallthrough;
 				case XDP_ABORTED:
-				xdp_abort:
-					//trace_xdp_exception(rq->netdev, prog, act);
-					//fallthrough;
-					case XDP_DROP:
-						rq->stats->xdp_drop++;
-				//return true;
+			xdp_abort:
+					trace_xdp_exception(rq->netdev, prog, act);
+					fallthrough;
+				case XDP_DROP:
+					rq->stats->xdp_drop++;
 			}
 
 			act >>= 4; 

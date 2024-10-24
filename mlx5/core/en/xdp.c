@@ -37,6 +37,8 @@
 #include <linux/bitfield.h>
 #include <net/page_pool/helpers.h>
 
+extern u8 metadata_enabled;
+
 int mlx5e_xdp_max_mtu(struct mlx5e_params *params, struct mlx5e_xsk_param *xsk)
 {
 	int hr = mlx5e_get_linear_rq_headroom(params, xsk);
@@ -69,14 +71,21 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 	int i;
 
 	xdpf = xdp_convert_buff_to_frame(xdp);
-	if (unlikely(!xdpf))
+	if (unlikely(!xdpf)) {
+		printk("mlx5e: failed to convert xdp_buff to xdp_frame\n");
 		return false;
+	}
 
 	xdptxd = &xdptxdf.xd;
 	xdptxd->data = xdpf->data;
 	xdptxd->len  = xdpf->len;
 	xdptxd->has_frags = xdp_frame_has_frags(xdpf);
+	// non entra, non ha frags
+	if (xdp_frame_has_frags(xdpf)) {
+		printk("mlx5e: xdp_frame has frags\n");
+	}
 
+	// Non entra
 	if (xdp->rxq->mem.type == MEM_TYPE_XSK_BUFF_POOL) {
 		/* The xdp_buff was in the UMEM and was copied into a newly
 		 * allocated page. The UMEM page was returned via the ZCA, and
@@ -90,12 +99,15 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 		 */
 		__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
 
-		if (unlikely(xdptxd->has_frags))
+		if (unlikely(xdptxd->has_frags)) {
+			printk("mlx5e: xdp_frame with frags is not supported in XSK\n");
 			return false;
+		}
 
 		dma_addr = dma_map_single(sq->pdev, xdptxd->data, xdptxd->len,
 					  DMA_TO_DEVICE);
 		if (dma_mapping_error(sq->pdev, dma_addr)) {
+			printk("mlx5e: failed to map xdp_frame\n");
 			xdp_return_frame(xdpf);
 			return false;
 		}
@@ -103,8 +115,10 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 		xdptxd->dma_addr = dma_addr;
 
 		if (unlikely(!INDIRECT_CALL_2(sq->xmit_xdp_frame, mlx5e_xmit_xdp_frame_mpwqe,
-					      mlx5e_xmit_xdp_frame, sq, xdptxd, 0, NULL)))
+					      mlx5e_xmit_xdp_frame, sq, xdptxd, 0, NULL))) {
+			printk("mlx5e: failed to xmit xdp_frame\n");
 			return false;
+		}
 
 		/* xmit_mode == MLX5E_XDP_XMIT_MODE_FRAME */
 		mlx5e_xdpi_fifo_push(&sq->db.xdpi_fifo,
@@ -125,6 +139,7 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 	dma_addr = page_pool_get_dma_addr(page) + (xdpf->data - (void *)xdpf);
 	dma_sync_single_for_device(sq->pdev, dma_addr, xdptxd->len, DMA_BIDIRECTIONAL);
 
+	// Non entra
 	if (xdptxd->has_frags) {
 		xdptxdf.sinfo = xdp_get_shared_info_from_frame(xdpf);
 		xdptxdf.dma_arr = NULL;
@@ -144,11 +159,15 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 
 	xdptxd->dma_addr = dma_addr;
 
+	// Lo esegue correttamente
 	if (unlikely(!INDIRECT_CALL_2(sq->xmit_xdp_frame, mlx5e_xmit_xdp_frame_mpwqe,
-				      mlx5e_xmit_xdp_frame, sq, xdptxd, 0, NULL)))
+				      mlx5e_xmit_xdp_frame, sq, xdptxd, 0, NULL))) {
+		printk("mlx5e: failed to xmit xdp_frame indir 2\n");
 		return false;
+	}
 
 	/* xmit_mode == MLX5E_XDP_XMIT_MODE_PAGE */
+	// La esegue correttamente
 	mlx5e_xdpi_fifo_push(&sq->db.xdpi_fifo,
 			     (union mlx5e_xdp_info) { .mode = MLX5E_XDP_XMIT_MODE_PAGE });
 
@@ -166,6 +185,7 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 					     { .page.page = skb_frag_page(frag) });
 		}
 	} else {
+		// Esegue
 		mlx5e_xdpi_fifo_push(&sq->db.xdpi_fifo,
 				     (union mlx5e_xdp_info) { .page.num = 1 });
 		mlx5e_xdpi_fifo_push(&sq->db.xdpi_fifo,
@@ -450,6 +470,7 @@ INDIRECT_CALLABLE_SCOPE bool
 mlx5e_xmit_xdp_frame_mpwqe(struct mlx5e_xdpsq *sq, struct mlx5e_xmit_data *xdptxd,
 			   int check_result, struct xsk_tx_metadata *meta)
 {
+	//printk("mlx5e: xmit xdp frame mpwqe\n");	
 	struct mlx5e_tx_mpwqe *session = &sq->mpwqe;
 	struct mlx5e_xdpsq_stats *stats = sq->stats;
 	struct mlx5e_xmit_data *p = xdptxd;
@@ -529,6 +550,7 @@ INDIRECT_CALLABLE_SCOPE bool
 mlx5e_xmit_xdp_frame(struct mlx5e_xdpsq *sq, struct mlx5e_xmit_data *xdptxd,
 		     int check_result, struct xsk_tx_metadata *meta)
 {
+	//printk("mlx5e: xmit xdp frame\n");
 	struct mlx5e_xmit_data_frags *xdptxdf =
 		container_of(xdptxd, struct mlx5e_xmit_data_frags, xd);
 	struct mlx5_wq_cyc       *wq   = &sq->wq;
@@ -656,6 +678,7 @@ mlx5e_xmit_xdp_frame(struct mlx5e_xdpsq *sq, struct mlx5e_xmit_data *xdptxd,
 	return true;
 }
 
+//TODO: da modificare
 static void mlx5e_free_xdpsq_desc(struct mlx5e_xdpsq *sq,
 				  struct mlx5e_xdp_wqe_info *wi,
 				  u32 *xsk_frames,
@@ -716,7 +739,9 @@ static void mlx5e_free_xdpsq_desc(struct mlx5e_xdpsq *sq,
 				/* No need to check ((page->pp_magic & ~0x3UL) == PP_SIGNATURE)
 				 * as we know this is a page_pool page.
 				 */
-				page_pool_recycle_direct(page->pp, page);
+				if (!metadata_enabled)
+					page_pool_recycle_direct(page->pp, page);
+				//printk("page_pool_recycle_direct\n");
 			} while (++n < num);
 
 			break;
