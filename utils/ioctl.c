@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
 			close(fd);
 			return -1;
 		}
-		printf("Received %lu packets\n", data);
+		printf("%lu\n", data);
 	} else {
 		printf("Invalid command number\n");
 		close(fd);
