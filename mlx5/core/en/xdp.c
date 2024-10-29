@@ -33,9 +33,11 @@
 #include <linux/bpf_trace.h>
 #include <net/xdp_sock_drv.h>
 #include "en/xdp.h"
+#include "en.h"
 #include "en/params.h"
 #include <linux/bitfield.h>
 #include <net/page_pool/helpers.h>
+#include <linux/page_ref.h>
 
 extern u8 metadata_enabled;
 
@@ -739,8 +741,14 @@ static void mlx5e_free_xdpsq_desc(struct mlx5e_xdpsq *sq,
 				/* No need to check ((page->pp_magic & ~0x3UL) == PP_SIGNATURE)
 				 * as we know this is a page_pool page.
 				 */
-				if (!metadata_enabled)
+				if (!metadata_enabled) {
 					page_pool_recycle_direct(page->pp, page);
+				} else {
+					page_ref_dec(page);
+					if (page_ref_count(page) == 1)
+						page_pool_recycle_direct(page->pp, page);
+					// test page refcount, if it is 1, recycle it, otherwise, put it back to the page_pool
+				}
 				//printk("page_pool_recycle_direct\n");
 			} while (++n < num);
 

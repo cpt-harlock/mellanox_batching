@@ -59,6 +59,7 @@
 #include "en/params.h"
 #include "devlink.h"
 #include <linux/bpf_trace.h>
+#include <linux/page_ref.h>
 #include "en/devlink.h"
 
 extern u8 metadata_enabled;
@@ -1950,6 +1951,10 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 	} else {
 		//TODO: tbc
 		rx_packets += 2;
+		// Increase page refcount
+		page_ref_inc(wi->frag_page->page);
+
+
 		
 		
 		struct mlx5e_frag_page *frag_page = wi->frag_page;
