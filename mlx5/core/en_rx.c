@@ -200,6 +200,7 @@ static u32 mlx5e_decompress_enhanced_cqe(struct mlx5e_rq *rq,
 					 struct mlx5_cqe64 *cqe,
 					 int budget_rem)
 {
+	printk("entering mlx5e_decompress_enhanced_cqe\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cqcc, left;
 	u32 i;
@@ -232,6 +233,7 @@ static inline u32 mlx5e_decompress_cqes_cont(struct mlx5e_rq *rq,
 					     int update_owner_only,
 					     int budget_rem)
 {
+	printk("entering mlx5e_decompress_cqes_cont\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cqcc = wq->cc + update_owner_only;
 	u32 cqe_count;
@@ -261,6 +263,7 @@ static inline u32 mlx5e_decompress_cqes_start(struct mlx5e_rq *rq,
 					      struct mlx5_cqwq *wq,
 					      int budget_rem)
 {
+	printk("entering mlx5e_decompress_cqes_start\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cc = wq->cc;
 
@@ -1949,14 +1952,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 
 		napi_gro_receive(rq->cq.napi, skb);
 	} else {
-		//TODO: tbc
-		rx_packets += 2;
-		// Increase page refcount
-		page_ref_inc(wi->frag_page->page);
-
-
-		
-		
 		struct mlx5e_frag_page *frag_page = wi->frag_page;
 		u16 rx_headroom = rq->buff.headroom;
 		struct bpf_prog *prog;
@@ -1969,6 +1964,9 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 #else 
 		u32 *metadata_value;
 #endif
+
+		// Increasing driver RX stats 
+		rx_packets += 2;
 
 		// setting pointers 
 		va             = page_address(frag_page->page) + wi->offset;
@@ -1999,6 +1997,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		u32 act;
 		int err;
 		u32 size; 
+		bool ref_count_not_increaed = true;
 		struct xdp_buff xdp_tx;
 		if (prog) {
 			struct mlx5e_xdp_buff mxbuf;
@@ -2017,6 +2016,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		} else {
 			act = XDP_PASS << 4 | XDP_PASS;
 		}
+		// convert metadata value to endianness
+		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
 		for (int i = 0; i < 2; i++) {
 			switch (act & 0xF) {
 				case XDP_PASS:
@@ -2026,6 +2027,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					if (!skb) {
 						printk("Unable to alloc skb\n");
 						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
+							printk("page used for XDP XMIT\n");
 							wi->frag_page->frags++;
 							mlx5_wq_cyc_pop(wq);
 						}
@@ -2043,6 +2045,13 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 				case XDP_TX:
 					//TODO: correct data pointers
 					// Fill xdp_buff using data_array[i] and data_end_array[i]
+					//if (ref_count_not_increaed) {
+					//	page_ref_inc(wi->frag_page->page);
+					//	ref_count_not_increaed = false;
+					//}
+					// we don't need to test the bit here since we know we're transmitting XDP
+					wi->frag_page->frags++;
+					//page_ref_inc(wi->frag_page->page);
 					xdp_tx.data = data_array[i];
 					xdp_tx.data_end = data_end_array[i];
 					xdp_tx.data_meta = data_array[i];
@@ -2057,7 +2066,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 						printk("Unable to xmit xdp buff\n");
 						goto xdp_abort;
 					}
-					__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
 					break;
 				case XDP_REDIRECT:
 					/* When XDP enabled then page-refcnt==1 here */
@@ -2679,6 +2687,8 @@ static int mlx5e_rx_cq_process_enhanced_cqe_comp(struct mlx5e_rq *rq,
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	int work_done = 0;
 
+	printk("inside enhanced_cqe_comp\n");
+
 	cqe = mlx5_cqwq_get_cqe_enahnced_comp(cqwq);
 	if (!cqe)
 		return work_done;
@@ -2727,6 +2737,7 @@ static int mlx5e_rx_cq_process_basic_cqe_comp(struct mlx5e_rq *rq,
 	struct mlx5_cqe64 *cqe;
 	int work_done = 0;
 
+	//printk("Inside basic_cqe_comp\n");
 	if (rq->cqd.left)
 		work_done += mlx5e_decompress_cqes_cont(rq, cqwq, 0, budget_rem);
 
@@ -2760,10 +2771,13 @@ int mlx5e_poll_rx_cq(struct mlx5e_cq *cq, int budget)
 	if (test_bit(MLX5E_RQ_STATE_MINI_CQE_ENHANCED, &rq->state))
 		work_done = mlx5e_rx_cq_process_enhanced_cqe_comp(rq, cqwq,
 								  budget);
-	else
+	else {
+		//printk("inside poll_rx_cq\n");
 		work_done = mlx5e_rx_cq_process_basic_cqe_comp(rq, cqwq,
 							       budget);
+	}
 
+	//printk("work_done: %d\n", work_done);
 	if (work_done == 0)
 		return 0;
 
