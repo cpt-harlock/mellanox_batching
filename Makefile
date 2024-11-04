@@ -11,9 +11,9 @@ all:
 
 reload:
 	@echo "Reloading Mellanox device drivers..."
-	$(MAKE) -C  ./mlx5/core reload
+	( cd ./mlx5/core; $(MAKE) reload )
 
 load:
 	@echo "Loading Mellanox device drivers..."
 	sudo rmmod mlx5_ib
-	$(MAKE) -C  ./mlx5/core reload
+	( cd ./mlx5/core; $(MAKE) reload )
