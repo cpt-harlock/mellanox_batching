@@ -247,4 +247,10 @@ mlx5e_xdpi_fifo_pop(struct mlx5e_xdp_info_fifo *fifo)
 {
 	return fifo->xi[(*fifo->cc)++ & fifo->mask];
 }
+
+static inline union mlx5e_xdp_info
+mlx5e_xdpi_fifo_peek(struct mlx5e_xdp_info_fifo *fifo)
+{
+	return fifo->xi[((*fifo->cc)+2) & fifo->mask];
+}
 #endif

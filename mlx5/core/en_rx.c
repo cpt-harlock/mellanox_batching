@@ -200,7 +200,7 @@ static u32 mlx5e_decompress_enhanced_cqe(struct mlx5e_rq *rq,
 					 struct mlx5_cqe64 *cqe,
 					 int budget_rem)
 {
-	printk("entering mlx5e_decompress_enhanced_cqe\n");
+	//printk("entering mlx5e_decompress_enhanced_cqe\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cqcc, left;
 	u32 i;
@@ -233,7 +233,7 @@ static inline u32 mlx5e_decompress_cqes_cont(struct mlx5e_rq *rq,
 					     int update_owner_only,
 					     int budget_rem)
 {
-	printk("entering mlx5e_decompress_cqes_cont\n");
+	//printk("entering mlx5e_decompress_cqes_cont\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cqcc = wq->cc + update_owner_only;
 	u32 cqe_count;
@@ -263,7 +263,7 @@ static inline u32 mlx5e_decompress_cqes_start(struct mlx5e_rq *rq,
 					      struct mlx5_cqwq *wq,
 					      int budget_rem)
 {
-	printk("entering mlx5e_decompress_cqes_start\n");
+	//printk("entering mlx5e_decompress_cqes_start\n");
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	u32 cc = wq->cc;
 
@@ -1974,6 +1974,17 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		metadata_value = va + rx_headroom;
 		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
 
+		// Print page id
+		//printk("RX: Page id: %lu\n", frag_page->page->index);
+		// Print first 32 bytes of the page
+		//printk("RX: First 32 bytes of the page\n");
+		//for (int i = 0; i < 32; i++) {
+		//	printk(KERN_CONT "%02x ", ((u8*)data)[i]);
+		//	if ((i+1) % 16 == 0) {
+		//		printk("\n");
+		//	}
+		//}
+		//printk("\n");
 		addr = page_pool_get_dma_addr(frag_page->page);
 		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
 				frag_size, rq->buff.map_dir);
@@ -1990,7 +2001,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		data_hard_start_array[0] = va;
 		data_array[1] = data + be16_to_cpu(*metadata_value);
 		data_end_array[1] = va + rx_headroom + cqe_bcnt;
-		data_hard_start_array[1] = data_array[1] - (sizeof(struct xdp_frame) + 16);	
+		data_hard_start_array[1] = va;
 
 		prog = rcu_dereference(rq->xdp_prog);
 
@@ -2009,15 +2020,16 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			// Inline processing 
 			struct xdp_buff* xdp = &mxbuf.xdp;
 			act = bpf_prog_run_xdp(prog, xdp);
-			rx_headroom = mxbuf.xdp.data - mxbuf.xdp.data_hard_start;
+			//rx_headroom = mxbuf.xdp.data - mxbuf.xdp.data_hard_start;
 			//metasize = mxbuf.xdp.data - mxbuf.xdp.data_meta;
-			cqe_bcnt = mxbuf.xdp.data_end - mxbuf.xdp.data;
+			//cqe_bcnt = mxbuf.xdp.data_end - mxbuf.xdp.data;
 			// Iterate over the two responses
 		} else {
 			act = XDP_PASS << 4 | XDP_PASS;
 		}
 		// convert metadata value to endianness
 		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
+		bool not_increased = true;
 		for (int i = 0; i < 2; i++) {
 			switch (act & 0xF) {
 				case XDP_PASS:
@@ -2034,7 +2046,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 						break;
 					}
 					/* queue up for recycling/reuse */
-					skb_mark_for_recycle(skb);
+					//skb_mark_for_recycle(skb);
 					skb_put_data(skb, data_array[i], size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
 					skb->ip_summed = CHECKSUM_UNNECESSARY;
@@ -2050,7 +2062,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//	ref_count_not_increaed = false;
 					//}
 					// we don't need to test the bit here since we know we're transmitting XDP
-					wi->frag_page->frags++;
 					//page_ref_inc(wi->frag_page->page);
 					xdp_tx.data = data_array[i];
 					xdp_tx.data_end = data_end_array[i];
@@ -2065,6 +2076,10 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx))) {
 						printk("Unable to xmit xdp buff\n");
 						goto xdp_abort;
+					}
+					if (not_increased) {
+						not_increased = false;
+						wi->frag_page->frags++;
 					}
 					break;
 				case XDP_REDIRECT:
@@ -2092,7 +2107,9 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					trace_xdp_exception(rq->netdev, prog, act);
 					fallthrough;
 				case XDP_DROP:
+					//printk("XDP_DROP\n");
 					rq->stats->xdp_drop++;
+					break;
 			}
 
 			act >>= 4; 
@@ -2687,7 +2704,7 @@ static int mlx5e_rx_cq_process_enhanced_cqe_comp(struct mlx5e_rq *rq,
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	int work_done = 0;
 
-	printk("inside enhanced_cqe_comp\n");
+	//printk("inside enhanced_cqe_comp\n");
 
 	cqe = mlx5_cqwq_get_cqe_enahnced_comp(cqwq);
 	if (!cqe)

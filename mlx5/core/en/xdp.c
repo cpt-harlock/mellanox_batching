@@ -82,6 +82,14 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 	xdptxd->data = xdpf->data;
 	xdptxd->len  = xdpf->len;
 	xdptxd->has_frags = xdp_frame_has_frags(xdpf);
+	//printk("XMIT_XDP_BUFF: Page id: %lu\n", page->index);
+	//printk("XMIT_XDP_BUFF: data first 32 bytes:\n");
+	//for (i = 0; i < 32; i++) {
+	//	printk(KERN_CONT "%02x ", ((u8 *)xdptxd->data)[i]);
+	//	if ((i+1) % 16 == 0) {
+	//		printk("\n");
+	//	}
+	//}
 	// non entra, non ha frags
 	if (xdp_frame_has_frags(xdpf)) {
 		printk("mlx5e: xdp_frame has frags\n");
@@ -138,6 +146,17 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 	 * mode.
 	 */
 
+	// Print data pointer and len
+	//printk("XMIT_XDP_BUFF: data pointer: %p, len: %d\n", xdptxd->data, xdptxd->len);
+	// Print first 32 bytes of the page
+	//void* data = xdptxd->data;
+	//printk("XMIT_XDP_BUFF: First 32 bytes of the page\n");
+	//for (i = 0; i < 32; i++) {
+	//	printk(KERN_CONT "%02x ", ((u8*)data)[i]);
+	//	if ((i+1) % 16 == 0) {
+	//		printk("\n");
+	//	}
+	//}
 	dma_addr = page_pool_get_dma_addr(page) + (xdpf->data - (void *)xdpf);
 	dma_sync_single_for_device(sq->pdev, dma_addr, xdptxd->len, DMA_BIDIRECTIONAL);
 
@@ -571,6 +590,17 @@ mlx5e_xmit_xdp_frame(struct mlx5e_xdpsq *sq, struct mlx5e_xmit_data *xdptxd,
 	bool linear;
 	u16 pi;
 
+
+	// Print first 32 bytes of the page
+	//void* data = xdptxd->data;
+	//printk("XMIT XDP FRAME: First 32 bytes of the page\n");
+	//for (int i = 0; i < 32; i++) {
+	//	printk(KERN_CONT "%02x ", ((u8*)data)[i]);
+	//	if ((i+1) % 16 == 0) {
+	//		printk("\n");
+	//	}
+	//}
+	//printk("\n");
 	struct mlx5e_xdpsq_stats *stats = sq->stats;
 
 	inline_ok = sq->min_inline_mode == MLX5_INLINE_MODE_NONE ||
@@ -741,7 +771,18 @@ static void mlx5e_free_xdpsq_desc(struct mlx5e_xdpsq *sq,
 				/* No need to check ((page->pp_magic & ~0x3UL) == PP_SIGNATURE)
 				 * as we know this is a page_pool page.
 				 */
-				page_pool_recycle_direct(page->pp, page);
+
+				//void* va = page_address(page);
+				//printk("TX FREE: Page id: %lu\n", page->index);
+				//printk("TX FREE: First 32 bytes of the page\n");
+				//for (int i = 0; i < 32; i++) {
+				//	printk(KERN_CONT "%02x ", ((u8*)va)[i]);
+				//	if ((i+1) % 16 == 0) {
+				//		printk("\n");
+				//	}
+				//}
+				//printk("\n");
+				//page_pool_recycle_direct(page->pp, page);
 				//if (!metadata_enabled) {
 				//	page_pool_recycle_direct(page->pp, page);
 				//} else {
@@ -821,6 +862,22 @@ bool mlx5e_poll_xdpsq_cq(struct mlx5e_cq *cq)
 
 			sqcc += wi->num_wqebbs;
 
+			//union mlx5e_xdp_info xdpi = mlx5e_xdpi_fifo_peek(&sq->db.xdpi_fifo);
+			//struct page *page = xdpi.page.page;
+			//if (page) {
+			//	void* va = page_address(page);
+			//	if (va != NULL) {
+			//		printk("POLL XDPSQ CQ: Page id: %lu\n", page->index);
+			//		printk("POLL XDPSQ CQ: First 32 bytes of the page\n");
+			//		for (int i = 0; i < 32; i++) {
+			//			printk(KERN_CONT "%02x ", ((u8*)va)[i]);
+			//			if ((i+1) % 16 == 0) {
+			//				printk("\n");
+			//			}
+			//		}
+			//		printk("\n");
+			//	}
+			//}
 			mlx5e_free_xdpsq_desc(sq, wi, &xsk_frames, &bq, cq, cqe);
 		} while (!last_wqe);
 
@@ -915,6 +972,14 @@ int mlx5e_xdp_xmit(struct net_device *dev, int n, struct xdp_frame **frames,
 		xdptxd->dma_addr = dma_map_single(sq->pdev, xdptxd->data,
 						  xdptxd->len, DMA_TO_DEVICE);
 
+		//void* data = xdptxd->data;
+		//printk("XDP XMIT : First 32 bytes of the page\n");
+		//for (int i = 0; i < 32; i++) {
+		//	printk(KERN_CONT "%02x ", ((u8*)data)[i]);
+		//	if ((i+1) % 16 == 0) {
+		//		printk("\n");
+		//	}
+		//}
 		if (unlikely(dma_mapping_error(sq->pdev, xdptxd->dma_addr)))
 			break;
 

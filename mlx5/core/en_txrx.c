@@ -165,10 +165,13 @@ int mlx5e_napi_poll(struct napi_struct *napi, int budget)
 	if (unlikely(!budget))
 		goto out;
 
+	//printk("napo\n");
 	busy |= mlx5e_poll_xdpsq_cq(&c->xdpsq.cq);
 
-	if (c->xdp)
+	if (c->xdp) {
+		// redirect
 		busy |= mlx5e_poll_xdpsq_cq(&c->rq_xdpsq.cq);
+	}
 
 	if (xsk_open)
 		work_done = mlx5e_poll_rx_cq(&xskrq->cq, budget);
