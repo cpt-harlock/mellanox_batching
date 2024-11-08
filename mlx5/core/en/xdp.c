@@ -361,8 +361,10 @@ bool mlx5e_xdp_handle(struct mlx5e_rq *rq,
 	case XDP_PASS:
 		return false;
 	case XDP_TX:
-		if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp)))
+		if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, xdp))) {
+			printk("mlx5e: failed to xmit xdp_buff\n");
 			goto xdp_abort;
+		}
 		__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags); /* non-atomic */
 		return true;
 	case XDP_REDIRECT:
@@ -782,7 +784,7 @@ static void mlx5e_free_xdpsq_desc(struct mlx5e_xdpsq *sq,
 				//	}
 				//}
 				//printk("\n");
-				//page_pool_recycle_direct(page->pp, page);
+				page_pool_recycle_direct(page->pp, page);
 				//if (!metadata_enabled) {
 				//	page_pool_recycle_direct(page->pp, page);
 				//} else {

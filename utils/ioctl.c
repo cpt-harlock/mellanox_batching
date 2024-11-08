@@ -10,7 +10,7 @@
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 
 
-#define DEVICE_FILE "/sys/kernel/debug/mlx5/0000:ca:00.1/cmd/run" // Replace with your device file
+#define DEVICE_FILE "/sys/kernel/debug/mlx5/0000:05:00.0/cmd/run" // Replace with your device file
 
 int main(int argc, char* argv[]) {
 	int fd;

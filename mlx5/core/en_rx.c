@@ -61,6 +61,7 @@
 #include <linux/bpf_trace.h>
 #include <linux/page_ref.h>
 #include "en/devlink.h"
+#include "en_custom.h"
 
 extern u8 metadata_enabled;
 extern u64 rx_packets;
@@ -1959,11 +1960,9 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		void *va, *data;
 		dma_addr_t addr;
 		u32 frag_size;
-#if MLX5E_BATCHED_METADATA_LENGTH == 2
-		u16 *metadata_value;
-#else 
-		u32 *metadata_value;
-#endif
+		u16* metadata_value;
+
+		u8 xdp_tx_bitmask = 0;
 
 		// Increasing driver RX stats 
 		rx_packets += 2;
@@ -1973,6 +1972,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		data           = va + rx_headroom + MLX5E_BATCHED_METADATA_LENGTH;
 		metadata_value = va + rx_headroom;
 		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
+		u16 meta_len = be16_to_cpu(*metadata_value) & 0x0FFF;
+		u16 meta_valid = be16_to_cpu(*metadata_value) >> 12;
 
 		// Print page id
 		//printk("RX: Page id: %lu\n", frag_page->page->index);
@@ -1997,9 +1998,9 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		void* data_hard_start_array[2];
 
 		data_array[0] = data;
-		data_end_array[0] = data + be16_to_cpu(*metadata_value);
+		data_end_array[0] = data + meta_len;
 		data_hard_start_array[0] = va;
-		data_array[1] = data + be16_to_cpu(*metadata_value);
+		data_array[1] = data + meta_len;
 		data_end_array[1] = va + rx_headroom + cqe_bcnt;
 		data_hard_start_array[1] = va;
 
@@ -2009,11 +2010,13 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		int err;
 		u32 size; 
 		bool ref_count_not_increaed = true;
-		struct xdp_buff xdp_tx;
+
+
+		struct mlx5e_xdp_buff mxbuf;
 		if (prog) {
-			struct mlx5e_xdp_buff mxbuf;
 
 			net_prefetchw(va); /* xdp_frame data area */
+			//mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
 			mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
 			     cqe_bcnt, &mxbuf);
 
@@ -2031,15 +2034,20 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
 		bool not_increased = true;
 		for (int i = 0; i < 2; i++) {
+			if (!(meta_valid & (1 << i))) {
+				//printk("Packet %d not valid\n", i);
+				continue;
+			}
 			switch (act & 0xF) {
 				case XDP_PASS:
+					//printk("XDP_PASS packet %d\n", i);
 					// Alloc skb and send packet above
 					size = (data_end_array[i] - data_array[i]);
 					skb = napi_alloc_skb(rq->cq.napi, size);
 					if (!skb) {
-						printk("Unable to alloc skb\n");
+						//printk("Unable to alloc skb\n");
 						if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
-							printk("page used for XDP XMIT\n");
+							//printk("page used for XDP XMIT\n");
 							wi->frag_page->frags++;
 							mlx5_wq_cyc_pop(wq);
 						}
@@ -2055,6 +2063,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					break;
 
 				case XDP_TX:
+					//printk("XDP_TX packet %d\n", i);
 					//TODO: correct data pointers
 					// Fill xdp_buff using data_array[i] and data_end_array[i]
 					//if (ref_count_not_increaed) {
@@ -2063,56 +2072,73 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					//}
 					// we don't need to test the bit here since we know we're transmitting XDP
 					//page_ref_inc(wi->frag_page->page);
-					xdp_tx.data = data_array[i];
-					xdp_tx.data_end = data_end_array[i];
-					xdp_tx.data_meta = data_array[i];
-					xdp_tx.data_hard_start = data_hard_start_array[i];
-					xdp_tx.rxq = &rq->xdp_rxq;
-					//xdp_tx.frame_sz = cqe_bcnt;
-					xdp_tx.frame_sz = frag_size;
+					//xdp_tx.data = data_array[i];
+					//xdp_tx.data_end = data_end_array[i];
+					//xdp_tx.data_meta = data_array[i];
+					//xdp_tx.data_hard_start = data_hard_start_array[i];
+					//xdp_tx.rxq = &rq->xdp_rxq;
+					////xdp_tx.frame_sz = cqe_bcnt;
+					//xdp_tx.frame_sz = frag_size;
 
-					//printk("Packet  %d\n", i);
-					//printk("XDP_TX\n");
-					if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx))) {
-						printk("Unable to xmit xdp buff\n");
-						goto xdp_abort;
-					}
-					if (not_increased) {
-						not_increased = false;
-						wi->frag_page->frags++;
-					}
+					////printk("Packet  %d\n", i);
+					////printk("XDP_TX\n");
+					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx))) {
+					//	printk("Unable to xmit xdp buff\n");
+					//	goto xdp_abort;
+					//}
+					//if (not_increased) {
+					//	not_increased = false;
+					//	wi->frag_page->frags++;
+					//}
+					// Set the bit in the bitmask for later sending
+					xdp_tx_bitmask |= (1 << i);
 					break;
 				case XDP_REDIRECT:
 					/* When XDP enabled then page-refcnt==1 here */
 					// Fill xdp_buff using data_array[i] and data_end_array[i]
-					xdp_tx.data = data_array[i];
-					xdp_tx.data_end = data_end_array[i];
-					xdp_tx.data_meta = data_array[i];
-					xdp_tx.data_hard_start = data_array[i];
-					xdp_tx.rxq = &rq->xdp_rxq;
+					//xdp_tx.data = data_array[i];
+					//xdp_tx.data_end = data_end_array[i];
+					//xdp_tx.data_meta = data_array[i];
+					//xdp_tx.data_hard_start = data_array[i];
+					//xdp_tx.rxq = &rq->xdp_rxq;
 
-					//TODO: check the netdev 
-					err = xdp_do_redirect(rq->netdev, &xdp_tx, prog);
-					if (unlikely(err))
-						goto xdp_abort;
-					__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
-					__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
+					////TODO: check the netdev 
+					//err = xdp_do_redirect(rq->netdev, &xdp_tx, prog);
+					//if (unlikely(err))
+					//	goto xdp_abort;
+					//__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
+					//__set_bit(MLX5E_RQ_FLAG_XDP_REDIRECT, rq->flags);
 					rq->stats->xdp_redirect++;
 					break;
 				default:
+					//printk("default packet %d\n", i);
 					bpf_warn_invalid_xdp_action(rq->netdev, prog, act);
 					fallthrough;
 				case XDP_ABORTED:
 			xdp_abort:
 					trace_xdp_exception(rq->netdev, prog, act);
+					//printk("XDP_ABORTED packet %d\n", i);
 					fallthrough;
 				case XDP_DROP:
+					//printk("XDP_DROP packet %d\n", i);
 					//printk("XDP_DROP\n");
 					rq->stats->xdp_drop++;
 					break;
 			}
 
 			act >>= 4; 
+		}
+		if (xdp_tx_bitmask) {
+			//printk("XDP_TX activated\n");
+			*metadata_value = be16_to_cpu((xdp_tx_bitmask << 12) | meta_len);
+			// move data pointer back to the start of the metadata
+			// so that we send back also the metadata to the NIC
+			mxbuf.xdp.data = mxbuf.xdp.data_meta;
+			if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &mxbuf.xdp))) {
+				//printk("Unable to xmit xdp buff\n");
+				goto wq_cyc_pop;
+			}
+			wi->frag_page->frags++;
 		}
 	}
 wq_cyc_pop:
