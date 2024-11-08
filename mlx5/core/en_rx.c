@@ -1993,6 +1993,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		//net_prefetch(data + be16_to_cpu(*metadata_value));
 
 		
+		// TODO: @vladimiro modify for more than 2 packets 
 		void* data_array[2];
 		void* data_end_array[2];
 		void* data_hard_start_array[2];
@@ -2006,7 +2007,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 
 		prog = rcu_dereference(rq->xdp_prog);
 
-		u32 act;
+		u32 act = 0;
 		int err;
 		u32 size; 
 		bool ref_count_not_increaed = true;
@@ -2028,12 +2029,13 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 			//cqe_bcnt = mxbuf.xdp.data_end - mxbuf.xdp.data;
 			// Iterate over the two responses
 		} else {
-			act = XDP_PASS << 4 | XDP_PASS;
+			for (int i = 0; i < 4; i++) {
+				act |= (XDP_PASS << (i * 4));
+			}
 		}
 		// convert metadata value to endianness
 		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
-		bool not_increased = true;
-		for (int i = 0; i < 2; i++) {
+		for (int i = 0; i < 4; i++) {
 			if (!(meta_valid & (1 << i))) {
 				//printk("Packet %d not valid\n", i);
 				continue;
