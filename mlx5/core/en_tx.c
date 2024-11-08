@@ -43,6 +43,8 @@
 #include "en/ptp.h"
 #include <net/ipv6.h>
 
+extern u8 metadata_enabled;
+
 static void mlx5e_dma_unmap_wqe_err(struct mlx5e_txqsq *sq, u8 num_dma)
 {
 	int i;
@@ -678,7 +680,14 @@ netdev_tx_t mlx5e_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct mlx5e_tx_wqe *wqe;
 	struct mlx5e_txqsq *sq;
 	u16 pi;
-
+	
+	if (metadata_enabled) {
+		skb->data -= 2;
+		u16 header = (1 << 12) | (skb->len & 0x0FFF);
+		header = be16_to_cpu(header);
+		skb->len += 2;
+		*((u16 *)skb->data) = header;
+	}
 	/* All changes to txq2sq are performed in sync with mlx5e_xmit, when the
 	 * queue being changed is disabled, and smp_wmb guarantees that the
 	 * changes are visible before mlx5e_xmit tries to read from txq2sq. It
