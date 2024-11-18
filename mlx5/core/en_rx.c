@@ -1960,32 +1960,29 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		void *va, *data;
 		dma_addr_t addr;
 		u32 frag_size;
-		u16* metadata_value;
+		u8* metadata_value;
+		metadata_header_t metadata_header;
 
 		u8 xdp_tx_bitmask = 0;
 
-		// Increasing driver RX stats 
-		rx_packets += 2;
+
+
 
 		// setting pointers 
 		va             = page_address(frag_page->page) + wi->offset;
 		data           = va + rx_headroom + MLX5E_BATCHED_METADATA_LENGTH;
 		metadata_value = va + rx_headroom;
 		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
-		u16 meta_len = be16_to_cpu(*metadata_value) & 0x0FFF;
-		u16 meta_valid = be16_to_cpu(*metadata_value) >> 12;
+		
+		metadata_header = unpack_metadata_header(metadata_value);
+		// Increasing driver RX stats 
+		// counting the number of valid packets from the metadata header bitmap
+		for (int i = 0; i < 4; i++) {
+			if (metadata_header.packet_bitmap & (1 << i)) {
+				rx_packets++;
+			}
+		}
 
-		// Print page id
-		//printk("RX: Page id: %lu\n", frag_page->page->index);
-		// Print first 32 bytes of the page
-		//printk("RX: First 32 bytes of the page\n");
-		//for (int i = 0; i < 32; i++) {
-		//	printk(KERN_CONT "%02x ", ((u8*)data)[i]);
-		//	if ((i+1) % 16 == 0) {
-		//		printk("\n");
-		//	}
-		//}
-		//printk("\n");
 		addr = page_pool_get_dma_addr(frag_page->page);
 		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
 				frag_size, rq->buff.map_dir);
@@ -1993,24 +1990,12 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		//net_prefetch(data + be16_to_cpu(*metadata_value));
 
 		
-		// TODO: @vladimiro modify for more than 2 packets 
-		void* data_array[2];
-		void* data_end_array[2];
-		void* data_hard_start_array[2];
-
-		data_array[0] = data;
-		data_end_array[0] = data + meta_len;
-		data_hard_start_array[0] = va;
-		data_array[1] = data + meta_len;
-		data_end_array[1] = va + rx_headroom + cqe_bcnt;
-		data_hard_start_array[1] = va;
 
 		prog = rcu_dereference(rq->xdp_prog);
 
 		u32 act = 0;
-		int err;
 		u32 size; 
-		bool ref_count_not_increaed = true;
+		u8* curr_data = data;
 
 
 		struct mlx5e_xdp_buff mxbuf;
@@ -2036,15 +2021,16 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		// convert metadata value to endianness
 		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
 		for (int i = 0; i < 4; i++) {
-			if (!(meta_valid & (1 << i))) {
+			if (!(metadata_header.packet_bitmap & (1 << i))) {
 				//printk("Packet %d not valid\n", i);
+				curr_data += metadata_header.packet_len[i];
 				continue;
 			}
 			switch (act & 0xF) {
 				case XDP_PASS:
 					//printk("XDP_PASS packet %d\n", i);
 					// Alloc skb and send packet above
-					size = (data_end_array[i] - data_array[i]);
+					size = metadata_header.packet_len[i];
 					skb = napi_alloc_skb(rq->cq.napi, size);
 					if (!skb) {
 						//printk("Unable to alloc skb\n");
@@ -2057,7 +2043,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					}
 					/* queue up for recycling/reuse */
 					//skb_mark_for_recycle(skb);
-					skb_put_data(skb, data_array[i], size);
+					skb_put_data(skb, curr_data, size);
 					skb->protocol = eth_type_trans(skb, rq->netdev);
 					skb->ip_summed = CHECKSUM_UNNECESSARY;
 					skb_record_rx_queue(skb, rq->ix);
@@ -2065,33 +2051,6 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					break;
 
 				case XDP_TX:
-					//printk("XDP_TX packet %d\n", i);
-					//TODO: correct data pointers
-					// Fill xdp_buff using data_array[i] and data_end_array[i]
-					//if (ref_count_not_increaed) {
-					//	page_ref_inc(wi->frag_page->page);
-					//	ref_count_not_increaed = false;
-					//}
-					// we don't need to test the bit here since we know we're transmitting XDP
-					//page_ref_inc(wi->frag_page->page);
-					//xdp_tx.data = data_array[i];
-					//xdp_tx.data_end = data_end_array[i];
-					//xdp_tx.data_meta = data_array[i];
-					//xdp_tx.data_hard_start = data_hard_start_array[i];
-					//xdp_tx.rxq = &rq->xdp_rxq;
-					////xdp_tx.frame_sz = cqe_bcnt;
-					//xdp_tx.frame_sz = frag_size;
-
-					////printk("Packet  %d\n", i);
-					////printk("XDP_TX\n");
-					//if (unlikely(!mlx5e_xmit_xdp_buff(rq->xdpsq, rq, &xdp_tx))) {
-					//	printk("Unable to xmit xdp buff\n");
-					//	goto xdp_abort;
-					//}
-					//if (not_increased) {
-					//	not_increased = false;
-					//	wi->frag_page->frags++;
-					//}
 					// Set the bit in the bitmask for later sending
 					xdp_tx_bitmask |= (1 << i);
 					break;
@@ -2132,7 +2091,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		}
 		if (xdp_tx_bitmask) {
 			//printk("XDP_TX activated\n");
-			*metadata_value = be16_to_cpu((xdp_tx_bitmask << 12) | meta_len);
+			metadata_header.packet_bitmap = xdp_tx_bitmask;
+			pack_metadata_header(metadata_value, metadata_header);
 			// move data pointer back to the start of the metadata
 			// so that we send back also the metadata to the NIC
 			mxbuf.xdp.data = mxbuf.xdp.data_meta;

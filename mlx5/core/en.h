@@ -64,7 +64,7 @@
 extern const struct net_device_ops mlx5e_netdev_ops;
 struct page_pool;
 
-#define MLX5E_BATCHED_METADATA_LENGTH 2
+#define MLX5E_BATCHED_METADATA_LENGTH 8
 
 #define MLX5E_METADATA_ETHER_TYPE (0x8CE4)
 #define MLX5E_METADATA_ETHER_LEN 8
