@@ -5,7 +5,7 @@
 
 typedef  struct __packed  {
 	u16 packet_bitmap;
-	u16 packet_len[3];
+	u16 packet_len[4];
 } metadata_header_t;
 
 inline metadata_header_t unpack_metadata_header(u8 *data) {

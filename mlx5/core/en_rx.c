@@ -1975,6 +1975,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		frag_size      = MLX5_SKB_FRAG_SZ(rx_headroom + cqe_bcnt);
 		
 		metadata_header = unpack_metadata_header(metadata_value);
+		// Set packet 4 length 
+		metadata_header.packet_len[3] = cqe_bcnt - (metadata_header.packet_len[0] + metadata_header.packet_len[1] + metadata_header.packet_len[2] + MLX5E_BATCHED_METADATA_LENGTH);
 		// Increasing driver RX stats 
 		// counting the number of valid packets from the metadata header bitmap
 		for (int i = 0; i < 4; i++) {
@@ -2022,9 +2024,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		//printk("Metadata value: %u\n", be16_to_cpu(*metadata_value));
 		for (int i = 0; i < 4; i++) {
 			if (!(metadata_header.packet_bitmap & (1 << i))) {
-				//printk("Packet %d not valid\n", i);
-				curr_data += metadata_header.packet_len[i];
-				continue;
+				goto skip_packet;
 			}
 			switch (act & 0xF) {
 				case XDP_PASS:
@@ -2086,7 +2086,8 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 					rq->stats->xdp_drop++;
 					break;
 			}
-
+		skip_packet:
+			curr_data += metadata_header.packet_len[i];
 			act >>= 4; 
 		}
 		if (xdp_tx_bitmask) {
