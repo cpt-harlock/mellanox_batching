@@ -183,7 +183,7 @@ mlx5e_xmit_xdp_buff(struct mlx5e_xdpsq *sq, struct mlx5e_rq *rq,
 	// Lo esegue correttamente
 	if (unlikely(!INDIRECT_CALL_2(sq->xmit_xdp_frame, mlx5e_xmit_xdp_frame_mpwqe,
 				      mlx5e_xmit_xdp_frame, sq, xdptxd, 0, NULL))) {
-		printk("mlx5e: failed to xmit xdp_frame indir 2\n");
+		//printk("mlx5e: failed to xmit xdp_frame indir 2\n");
 		return false;
 	}
 
