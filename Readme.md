@@ -67,6 +67,7 @@ The batched header is a 16 bytes header that contains the metadata of the batche
 |-----------------|----------------------   |
 | bitmap [15:12]  |  next packet len [11:0] |
 
+The **bitmap** field tells the NIC's driver which packets in the batch are to be processed. 
 
 # Batching in XDP
 
