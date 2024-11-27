@@ -49,6 +49,7 @@
 #include "en_ioctl.h"
 
 extern u8 metadata_enabled;
+extern u8 prefetch_enabled;
 extern u64 rx_packets;
 
 struct mlx5_ifc_mbox_out_bits {
@@ -1317,6 +1318,14 @@ static long metadata_ioctl(struct file* file,  unsigned int cmd, unsigned long a
 				return -EFAULT;
 			}
 			break;
+		case PREFETCH_ENABLE:
+			prefetch_enabled = 1;
+			printk("Prefetch enabled: %u\n", prefetch_enabled);
+			break;
+		case PREFETCH_DISABLE:
+			prefetch_enabled = 0;
+			printk("Prefetch disabled: %u\n", prefetch_enabled);
+			break;	
 		default:
 			printk("Invalid command\n");
 			return -EINVAL;

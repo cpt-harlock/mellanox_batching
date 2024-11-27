@@ -10,7 +10,7 @@
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 
 
-#define DEVICE_FILE "/sys/kernel/debug/mlx5/0000:05:00.0/cmd/run" // Replace with your device file
+#define DEVICE_FILE "/sys/kernel/debug/mlx5/0000:34:00.1/cmd/run" // Replace with your device file
 
 int main(int argc, char* argv[]) {
 	int fd;
@@ -18,6 +18,13 @@ int main(int argc, char* argv[]) {
 
 	if (argc < 2) {
 		printf("Error, usage: sudo ./ioctl <cmd_number> [cmd_args]\n");
+		// print commands
+		printf("0: RESET_METADATA\n");
+		printf("1: SET_METADATA\n");
+		printf("2: READ_RX_PACKETS\n");
+		printf("3: READ_RX_PACKETS with delay\n");
+		printf("4: PREFETCH_ENABLE\n");
+		printf("5: PREFETCH_DISABLE\n");
 		exit(-1);
 	}
 
@@ -66,6 +73,22 @@ int main(int argc, char* argv[]) {
 			return -1;
 		}
 		printf("%lu\n", data_end - data_start);
+	}
+	else if (cmd == 4) {
+		// enable prefetching
+		if (ioctl(fd, PREFETCH_ENABLE) < 0) {
+			perror("Failed to write data using ioctl");
+			close(fd);
+			return -1;
+		}
+	}
+	else if (cmd == 5) {
+		// disable prefetching
+		if (ioctl(fd, PREFETCH_DISABLE) < 0) {
+			perror("Failed to write data using ioctl");
+			close(fd);
+			return -1;
+		}
 	}
 	else {
 		printf("Invalid command number\n");

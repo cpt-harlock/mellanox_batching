@@ -64,6 +64,7 @@
 #include "en_custom.h"
 
 extern u8 metadata_enabled;
+extern u8 prefetch_enabled;
 extern u64 rx_packets;
 static struct sk_buff *
 mlx5e_skb_from_cqe_mpwrq_linear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *wi,
@@ -1981,6 +1982,14 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		// counting the number of valid packets from the metadata header bitmap
 		for (int i = 0; i < 4; i++) {
 			if (metadata_header.packet_bitmap & (1 << i)) {
+				if (unlikely(prefetch_enabled)) {
+					if (i != 0) {
+						// prefetch the next packet
+						net_prefetch(data + metadata_header.packet_len[i-1]);
+					} else {
+						net_prefetch(data);
+					}
+				}
 				rx_packets++;
 			}
 		}
