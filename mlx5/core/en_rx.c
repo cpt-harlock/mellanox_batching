@@ -1982,14 +1982,14 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		// counting the number of valid packets from the metadata header bitmap
 		for (int i = 0; i < 4; i++) {
 			if (metadata_header.packet_bitmap & (1 << i)) {
-				if (unlikely(prefetch_enabled)) {
-					if (i != 0) {
-						// prefetch the next packet
-						net_prefetch(data + metadata_header.packet_len[i-1]);
-					} else {
-						net_prefetch(data);
-					}
-				}
+				//if (likely(prefetch_enabled)) {
+				//	if (i != 0) {
+				//		// prefetch the next packet
+				//		prefetch(data + metadata_header.packet_len[i-1]);
+				//	} else {
+				//		prefetch(data);
+				//	}
+				//}
 				rx_packets++;
 			}
 		}
@@ -1997,7 +1997,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		addr = page_pool_get_dma_addr(frag_page->page);
 		dma_sync_single_range_for_cpu(rq->pdev, addr, wi->offset,
 				frag_size, rq->buff.map_dir);
-		net_prefetch(data);
+		//net_prefetch(data);
 		//net_prefetch(data + be16_to_cpu(*metadata_value));
 
 		
@@ -2012,7 +2012,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 		struct mlx5e_xdp_buff mxbuf;
 		if (prog) {
 
-			net_prefetchw(va); /* xdp_frame data area */
+			//net_prefetchw(va); /* xdp_frame data area */
 			//mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
 			mlx5e_fill_mxbuf_metadata(rq, cqe, va, rx_headroom, rq->buff.frame0_sz,
 			     cqe_bcnt, &mxbuf);
